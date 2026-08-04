@@ -630,7 +630,7 @@ function renderDashboard(root) {
     h1, h2, h3 { font-family:Cormorant Garamond, Georgia, serif; margin:0; color:var(--accent); }
     h1 { font-size:clamp(48px, 8vw, 92px); line-height:.92; letter-spacing:-.045em; max-width:780px; }
     .hero p { color:var(--subtext); max-width:620px; line-height:1.75; font-size:17px; margin:22px 0 0; }
-    .grid { display:grid; grid-template-columns:minmax(0, 1fr) 390px; gap:24px; align-items:start; }
+    .grid { display:block; }
     form, .preview, .log { background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.015)); border:1px solid var(--border); border-radius:24px; padding:22px; }
     .field { margin-bottom:16px; }
     label { display:block; color:var(--subtext); font-size:12px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:8px; }
@@ -645,7 +645,10 @@ function renderDashboard(root) {
     button.secondary { background:transparent; color:var(--foreground); border:1px solid var(--border); }
     button:disabled { cursor:not-allowed; opacity:.5; }
     .note { color:var(--subtext); font-size:13px; line-height:1.55; }
-    .preview { position:sticky; top:18px; }
+    .preview-dialog { width:min(900px, calc(100% - 32px)); max-height:calc(100dvh - 32px); padding:0; border:0; border-radius:24px; background:transparent; color:var(--foreground); }
+    .preview-dialog::backdrop { background:rgba(0,0,0,.8); backdrop-filter:blur(4px); }
+    .preview-dialog .preview { max-height:calc(100dvh - 32px); overflow:auto; }
+    .preview-toolbar { display:flex; justify-content:flex-end; margin-bottom:18px; }
     .preview h2 { font-size:34px; line-height:1.05; margin-bottom:10px; }
     .meta { color:var(--subtext); font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; margin-bottom:22px; }
     .markdown { color:var(--foreground); line-height:1.75; overflow-wrap:anywhere; }
@@ -663,7 +666,6 @@ function renderDashboard(root) {
     .log { margin-top:24px; display:none; }
     .log pre { white-space:pre-wrap; overflow:auto; margin:0; color:var(--subtext); font-size:12px; line-height:1.55; }
     [hidden] { display:none !important; }
-    @media (max-width: 900px) { .grid { grid-template-columns:1fr; } .preview { position:static; } }
   </style>
 </head>
 <body>
@@ -729,6 +731,7 @@ function renderDashboard(root) {
           <button id="load-draft" type="button" class="secondary">불러오기</button>
         </div>
         <div class="actions">
+          <button id="show-preview" type="button" class="secondary">Preview</button>
           <button id="draft" type="button" class="secondary">임시저장</button>
           <button id="publish" type="submit">Save, commit & push</button>
           <span class="note">임시저장은 <code>.article-drafts/</code>에만 저장합니다. 커밋 메시지: <code>yyyy-MM-dd new article written by Celan - {POST_TITLE}</code></span>
@@ -736,12 +739,16 @@ function renderDashboard(root) {
         <div id="status" class="status"></div>
       </form>
 
+    </section>
+
+    <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-title">
       <aside class="preview">
+        <div class="preview-toolbar"><button id="close-preview" type="button" class="secondary">Close</button></div>
         <h2 id="preview-title">Untitled</h2>
         <div id="preview-meta" class="meta">${today} · ${DEFAULT_CATEGORY}</div>
         <article id="preview-body" class="markdown"></article>
       </aside>
-    </section>
+    </dialog>
 
     <section id="log" class="log"><pre id="log-content"></pre></section>
   </div>
@@ -755,6 +762,9 @@ function renderDashboard(root) {
     const tags = document.querySelector("#tags");
     const links = document.querySelector("#links");
     const body = document.querySelector("#body");
+    const showPreviewButton = document.querySelector("#show-preview");
+    const previewDialog = document.querySelector("#preview-dialog");
+    const closePreviewButton = document.querySelector("#close-preview");
     const previewTitle = document.querySelector("#preview-title");
     const previewMeta = document.querySelector("#preview-meta");
     const previewBody = document.querySelector("#preview-body");
@@ -795,6 +805,8 @@ function renderDashboard(root) {
 
     for (const element of [title, date, category, body]) element.addEventListener("input", updatePreview);
     updatePreview();
+    showPreviewButton.addEventListener("click", () => { updatePreview(); previewDialog.showModal(); });
+    closePreviewButton.addEventListener("click", () => previewDialog.close());
 
     function collectPayload() {
       return {
@@ -1004,9 +1016,12 @@ function renderPortfolioDashboard(root) {
     header { display:flex; flex-wrap:wrap; align-items:end; justify-content:space-between; gap:16px; margin-bottom:28px; }
     h1,h2,h3 { margin:0; font-family:Georgia,serif; }
     header p,.path,.hint,.media-path { color:var(--subtext); }
-    .layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(320px,420px); gap:24px; align-items:start; }
-    form,#preview { border:1px solid var(--border); border-radius:22px; background:var(--panel); padding:22px; }
-    #preview { position:sticky; top:18px; }
+    .layout { display:block; }
+    form { border:1px solid var(--border); border-radius:22px; background:var(--panel); padding:22px; }
+    .preview-dialog { width:min(1120px, calc(100% - 32px)); max-height:calc(100dvh - 32px); padding:22px; border:1px solid var(--border); border-radius:22px; background:var(--panel); color:var(--foreground); }
+    .preview-dialog::backdrop { background:rgba(0,0,0,.8); backdrop-filter:blur(4px); }
+    .preview-dialog #preview { max-height:calc(100dvh - 32px); overflow:auto; }
+    .preview-toolbar { display:flex; justify-content:flex-end; margin-bottom:18px; }
     .field { margin-bottom:16px; }
     label { display:block; margin-bottom:7px; color:var(--subtext); font-size:13px; }
     input,select,textarea { width:100%; border:1px solid var(--border); border-radius:12px; background:#080808; color:var(--foreground); padding:11px 12px; font:inherit; }
@@ -1022,7 +1037,8 @@ function renderPortfolioDashboard(root) {
     .media-drop-area.drag-active { border-color:var(--foreground); background:rgba(255,255,255,.06); }
     #media-rows { list-style:none; padding:0; display:grid; gap:14px; }
     .media-row { border:1px solid var(--border); border-radius:16px; padding:14px; }
-    .media-row img,.media-row video,#preview img,#preview video { width:100%; max-height:280px; object-fit:contain; border-radius:10px; background:#050505; }
+    .media-row img,.media-row video { width:100%; max-height:280px; object-fit:contain; border-radius:10px; background:#050505; }
+    #preview img,#preview video { width:100%; height:auto; border-radius:10px; background:#050505; }
     .cover-preview { min-height:160px; margin:10px 0; display:grid; place-items:center; border-radius:10px; background:#050505; color:var(--subtext); overflow:hidden; }
     .cover-preview img { width:100%; max-height:280px; object-fit:contain; }
     .media-path { display:block; overflow-wrap:anywhere; margin:8px 0 12px; }
@@ -1031,10 +1047,13 @@ function renderPortfolioDashboard(root) {
     #preview figcaption { color:var(--subtext); margin-top:7px; }
     #preview .inline-media { display:block; margin-block:20px; }
     #preview .inline-media-caption { display:block; color:var(--subtext); margin-top:7px; }
+    #preview .media-gallery { display:grid; grid-template-columns:1fr; gap:32px; margin-top:48px; }
+    #preview .media-gallery figure { margin:0; }
     #status { min-height:1.5em; margin-top:15px; white-space:pre-wrap; color:var(--subtext); }
     #status.ok { color:var(--ok); } #status.error { color:var(--danger); }
     #command-log { white-space:pre-wrap; overflow:auto; color:var(--subtext); }
-    @media (max-width:900px) { .layout { grid-template-columns:1fr; } #preview { position:static; } }
+    @media (min-width:768px) { #preview .media-gallery { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+    @media (min-width:1280px) { #preview .media-gallery { grid-template-columns:repeat(3, minmax(0,1fr)); } }
   </style>
 </head>
 <body>
@@ -1074,13 +1093,17 @@ function renderPortfolioDashboard(root) {
         </div>
         <div class="actions">
           <button id="save-draft" type="button" class="secondary">Save Draft</button>
+          <button id="show-preview" type="button" class="secondary">Preview</button>
           <button id="publish" type="submit">Save, Commit &amp; Push</button>
         </div>
         <p id="status" role="status" aria-live="polite"></p>
         <pre id="command-log"></pre>
       </form>
-      <aside id="preview" aria-label="Project preview"></aside>
     </section>
+    <dialog id="preview-dialog" class="preview-dialog" aria-label="Project preview">
+      <div class="preview-toolbar"><button id="close-preview" type="button" class="secondary">Close</button></div>
+      <aside id="preview"></aside>
+    </dialog>
   </main>
   <script>
     const form = document.querySelector("#portfolio-form");
@@ -1101,7 +1124,10 @@ function renderPortfolioDashboard(root) {
     const draftSelect = document.querySelector("#draft-select");
     const loadDraftButton = document.querySelector("#load-draft");
     const saveDraftButton = document.querySelector("#save-draft");
+    const showPreviewButton = document.querySelector("#show-preview");
     const publishButton = document.querySelector("#publish");
+    const previewDialog = document.querySelector("#preview-dialog");
+    const closePreviewButton = document.querySelector("#close-preview");
     const preview = document.querySelector("#preview");
     const status = document.querySelector("#status");
     const commandLog = document.querySelector("#command-log");
@@ -1237,7 +1263,7 @@ function renderPortfolioDashboard(root) {
     function previewMedia(item, inline = false) {
       const container = document.createElement(inline ? "span" : "figure");
       if (inline) container.className = "inline-media";
-      applyMediaSize(container, item.size);
+      if (inline) applyMediaSize(container, item.size);
       container.append(mediaElement(item));
       const caption = document.createElement(inline ? "span" : "figcaption");
       if (inline) caption.className = "inline-media-caption";
@@ -1321,7 +1347,6 @@ function renderPortfolioDashboard(root) {
       state.project.media.forEach((item, index) => {
         const row = document.createElement("li");
         row.className = "media-row";
-        applyMediaSize(row, item.size);
         row.append(mediaElement(item));
         const storedPath = document.createElement("code");
         storedPath.className = "media-path";
@@ -1362,7 +1387,6 @@ function renderPortfolioDashboard(root) {
         sizeSelect.value = item.size;
         sizeSelect.addEventListener("change", () => {
           item.size = sizeSelect.value;
-          applyMediaSize(row, item.size);
           markDirty();
         });
         sizeLabel.append(sizeSelect);
@@ -1414,10 +1438,13 @@ function renderPortfolioDashboard(root) {
           image.replaceWith(previewMedia(item, true));
         }
         const content = [markdown];
+        const gallery = document.createElement("div");
+        gallery.className = "media-gallery";
         for (const item of state.project.media) {
           if (referenced.has(item.src)) continue;
-          content.push(previewMedia(item));
+          gallery.append(previewMedia(item));
         }
+        if (gallery.children.length) content.push(gallery);
         preview.replaceChildren(...(cover ? [cover] : []), title, period, ...content);
       } catch (error) {
         if (request === state.previewRequest) {
@@ -1432,6 +1459,9 @@ function renderPortfolioDashboard(root) {
       clearTimeout(previewTimer);
       previewTimer = setTimeout(renderPreview, 100);
     }
+
+    showPreviewButton.addEventListener("click", () => { renderPreview(); previewDialog.showModal(); });
+    closePreviewButton.addEventListener("click", () => previewDialog.close());
 
     function renderProjectOptions() {
       projectSelect.replaceChildren();

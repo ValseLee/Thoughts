@@ -472,9 +472,10 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   const dashboard = await fetch(`${origin}/`);
   const html = await dashboard.text();
   assert.equal(dashboard.status, 200);
-  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
+  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "show-preview", "publish", "preview-dialog", "close-preview", "preview", "status", "command-log"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
+  assert.match(html, /<dialog id="preview-dialog"/);
   assert.match(html, /id="media-area" class="media-drop-area"/);
   assert.match(html, /<input id="period-start" type="date" required/);
   assert.match(html, /<input id="period-end" type="date" required/);
@@ -511,6 +512,21 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   assert.deepEqual(loaded.project, project);
 });
 
+test("article mode keeps preview in a native dialog", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-dialog-"));
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const { port } = server.address();
+  const html = await (await fetch(`http://127.0.0.1:${port}/`)).text();
+
+  for (const id of ["show-preview", "preview-dialog", "close-preview", "preview-title", "preview-meta", "preview-body"]) {
+    assert.match(html, new RegExp(`id=["']${id}["']`));
+  }
+  assert.match(html, /<dialog id="preview-dialog"/);
+});
+
 test("portfolio controls retain browser behavior", async (t) => {
   const draftProject = portfolioProject({
     period: "2026.01.02 — 2026.07.21",
@@ -544,6 +560,7 @@ test("portfolio controls retain browser behavior", async (t) => {
       tagName: tagName.toUpperCase(),
       value: "",
       checked: false,
+      open: false,
       disabled: false,
       required: false,
       min: "",
@@ -566,6 +583,8 @@ test("portfolio controls retain browser behavior", async (t) => {
       getAttribute(name) { return this[name] ?? null; },
       querySelectorAll(selector) { return selector === "img" ? embeddedImages : []; },
       replaceWith(replacement) { this.replacement = replacement; },
+      showModal() { this.open = true; },
+      close() { this.open = false; },
       focus() {},
       setRangeText(replacement, start, end, selectionMode) {
         this.value = this.value.slice(0, start) + replacement + this.value.slice(end);
@@ -613,7 +632,7 @@ test("portfolio controls retain browser behavior", async (t) => {
     constructor(parts, name, options) { this.parts = parts; this.name = name; this.type = options.type; }
   }
   const body = createElement();
-  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
+  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "show-preview", "publish", "preview-dialog", "close-preview", "preview", "status", "command-log"];
   const elements = new Map(selectors.map((id) => [`#${id}`, createElement()]));
   let formValid = false;
   let validityChecks = 0;
@@ -710,17 +729,25 @@ test("portfolio controls retain browser behavior", async (t) => {
     { start: "2026-01-02", end: "2026-07-21", present: false, min: "2026-01-02", disabled: false, required: true },
   );
 
-  assert.equal(mediaRows.children[0].style.width, "45%");
-  assert.equal(mediaRows.children[0].style.marginInline, "auto");
+  assert.equal(mediaRows.children[0].style.width, undefined);
+  assert.equal(mediaRows.children[0].style.marginInline, undefined);
   assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/old-poster.jpg");
   assert.deepEqual(sizeControl(mediaRows.children[0]).children.map(({ value }) => value), ["mini", "small", "medium", "large", "full"]);
 
   sizeControl(mediaRows.children[0]).value = "medium";
   sizeControl(mediaRows.children[0]).dispatch("change");
   await settle();
-  assert.equal(mediaRows.children[0].style.width, "65%");
-  assert.equal(preview.children[4].style.width, "65%");
-  assert.equal(preview.children[4].style.marginInline, "auto");
+  assert.equal(mediaRows.children[0].style.width, undefined);
+  assert.equal(preview.children[4].className, "media-gallery");
+  assert.equal(preview.children[4].children[0].style.width, undefined);
+  assert.equal(preview.children[4].children[0].style.marginInline, undefined);
+
+  const previewDialog = elements.get("#preview-dialog");
+  assert.equal(previewDialog.open, false);
+  elements.get("#show-preview").dispatch("click");
+  assert.equal(previewDialog.open, true);
+  elements.get("#close-preview").dispatch("click");
+  assert.equal(previewDialog.open, false);
 
   await thumbnailButton(mediaRows.children[0]).dispatch("click");
   const drawnFrame = drawnFrames.at(-1);
