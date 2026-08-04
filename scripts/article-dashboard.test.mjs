@@ -6,6 +6,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
+import { portfolioMediaSources } from "../lib/portfolio.mjs";
 
 import {
   buildCommitMessage,
@@ -126,6 +127,35 @@ test("normalizePortfolioProject validates media sizes and video posters", () => 
   ]) assert.throws(() => normalizePortfolioProject({ ...valid, media: [media] }), /media\[0\]\.posterSrc/i);
 });
 
+test("normalizePortfolioProject rejects inline media missing from the project media list", () => {
+  assert.throws(() => normalizePortfolioProject(portfolioProject({
+    descriptionMarkdown: "Before\n\n![Missing](/portfolio/missing.png)\n\nAfter",
+  })), /descriptionMarkdown.*missing\.png/i);
+  assert.doesNotThrow(() => normalizePortfolioProject(portfolioProject({
+    descriptionMarkdown: "```md\n![Example](/portfolio/missing.png)\n```",
+  })));
+});
+
+test("portfolioMediaSources follows Markdown image semantics without splitting the document", () => {
+  assert.deepEqual(portfolioMediaSources([
+    "![Direct](/portfolio/direct.png)",
+    "",
+    "[Related post][post]",
+    "",
+    "[post]: /posts/example",
+    "",
+    "```md",
+    "![Example](/portfolio/code-only.png)",
+    "```",
+  ].join("\n")), ["/portfolio/direct.png"]);
+  assert.throws(() => portfolioMediaSources([
+    "![Reference][demo]",
+    "",
+    "[demo]: /portfolio/demo.mp4",
+  ].join("\n")), /must use !\[alt\]\(\/portfolio\/file\)/i);
+  assert.throws(() => portfolioMediaSources(null), /must be a string/i);
+});
+
 test("savePortfolioMedia stores MP4 uploads and suffixes collisions", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "portfolio-media-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -198,7 +228,7 @@ test("portfolio drafts round-trip and failed replacement preserves the previous 
     slug: "loutine",
     name: "Loutine",
     period: "2025",
-    descriptionMarkdown: "Description",
+    descriptionMarkdown: "Before\n\n![Demo](/portfolio/demo.mp4)\n\nAfter",
     coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
     media: [{
       kind: "video",
@@ -301,6 +331,7 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
     portfolioProject({
       slug: "loutine",
       name: "Loutine",
+      descriptionMarkdown: "Before\n\n![Demo](/portfolio/demo.mp4)\n\nAfter",
       coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
       media: [{
         kind: "video",
@@ -316,7 +347,9 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   );
 
   assert.equal(result.committed, true);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "content", "portfolio.json"), "utf8")).projects.map(({ slug }) => slug), ["first", "loutine"]);
+  const publishedProjects = JSON.parse(fs.readFileSync(path.join(root, "content", "portfolio.json"), "utf8")).projects;
+  assert.deepEqual(publishedProjects.map(({ slug }) => slug), ["first", "loutine"]);
+  assert.equal(publishedProjects[1].descriptionMarkdown, "Before\n\n![Demo](/portfolio/demo.mp4)\n\nAfter");
   assert.deepEqual(calls.map(({ command, args, cwd }) => [command, args, cwd]), [
     ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4", "public/portfolio/demo-poster.jpg"], root],
     ["npm", ["run", "build"], root],
@@ -447,6 +480,7 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   assert.match(html, /<input id="period-end" type="date" required/);
   assert.match(html, /<input id="period-present" type="checkbox"/);
   assert.match(html, /id="cover-input" type="file" accept="image\/\*"/);
+  assert.match(html, /Insert at cursor/);
   assert.doesNotMatch(html, /id="article-form"/);
   const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(browserScript);
@@ -458,9 +492,12 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   const preview = await fetch(`${origin}/api/portfolio/preview`, {
     method: "POST",
     headers: { Origin: origin, "content-type": "application/json" },
-    body: JSON.stringify({ markdown: "## Preview" }),
+    body: JSON.stringify({ markdown: "Before\n\n![Demo](/portfolio/demo.mp4)\n\nAfter" }),
   });
-  assert.match((await preview.json()).html, /<h2>Preview<\/h2>/);
+  assert.equal(
+    (await preview.json()).html,
+    '<p>Before</p>\n<p><img src="/portfolio/demo.mp4" alt="Demo" /></p>\n<p>After</p>',
+  );
 
   const saved = await fetch(`${origin}/api/portfolio/draft`, {
     method: "POST",
@@ -501,6 +538,8 @@ test("portfolio controls retain browser behavior", async (t) => {
   const createElement = (tagName = "div") => {
     const listeners = new Map();
     const classes = new Set();
+    const embeddedImages = [];
+    let innerHtml = "";
     const element = {
       tagName: tagName.toUpperCase(),
       value: "",
@@ -509,6 +548,8 @@ test("portfolio controls retain browser behavior", async (t) => {
       required: false,
       min: "",
       files: [],
+      selectionStart: 0,
+      selectionEnd: 0,
       children: [],
       style: {},
       classList: {
@@ -522,7 +563,27 @@ test("portfolio controls retain browser behavior", async (t) => {
       listenerCount() { return listeners.size; },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
+      getAttribute(name) { return this[name] ?? null; },
+      querySelectorAll(selector) { return selector === "img" ? embeddedImages : []; },
+      replaceWith(replacement) { this.replacement = replacement; },
+      focus() {},
+      setRangeText(replacement, start, end, selectionMode) {
+        this.value = this.value.slice(0, start) + replacement + this.value.slice(end);
+        if (selectionMode === "end") this.selectionStart = this.selectionEnd = start + replacement.length;
+      },
     };
+    Object.defineProperty(element, "innerHTML", {
+      get() { return innerHtml; },
+      set(value) {
+        innerHtml = value;
+        embeddedImages.length = 0;
+        for (const match of value.matchAll(/<img src="([^"]+)"/g)) {
+          const image = createElement("img");
+          image.src = match[1];
+          embeddedImages.push(image);
+        }
+      },
+    });
     if (tagName === "video") {
       element.videoWidth = 1280;
       element.videoHeight = 720;
@@ -573,7 +634,9 @@ test("portfolio controls retain browser behavior", async (t) => {
       result = { ok: true, drafts: [{ fileName: "loutine.json", name: "Loutine", updatedAt: "2026-07-22T12:50:21.312Z" }] };
     }
     else if (url === "/api/portfolio/draft?file=loutine.json") result = { ok: true, project: draftProject };
-    else if (url === "/api/portfolio/preview") result = { ok: true, html: "<p>preview</p>" };
+    else if (url === "/api/portfolio/preview") result = JSON.parse(options.body).markdown === "Before\n\n![inline.png](/portfolio/inline.png)After"
+      ? { ok: true, html: '<p>Before</p>\n<p><img src="/portfolio/inline.png" alt="inline.png" />After</p>' }
+      : { ok: true, html: "<p>preview</p>" };
     else if (url === "/api/portfolio/media") {
       const fileName = decodeURIComponent(options.headers["x-file-name"]);
       if (fileName === "rejected.mp4") {
@@ -654,6 +717,7 @@ test("portfolio controls retain browser behavior", async (t) => {
 
   sizeControl(mediaRows.children[0]).value = "medium";
   sizeControl(mediaRows.children[0]).dispatch("change");
+  await settle();
   assert.equal(mediaRows.children[0].style.width, "65%");
   assert.equal(preview.children[4].style.width, "65%");
   assert.equal(preview.children[4].style.marginInline, "auto");
@@ -743,6 +807,18 @@ test("portfolio controls retain browser behavior", async (t) => {
 
   const mediaArea = elements.get("#media-area");
   const mediaInput = elements.get("#media-input");
+  const descriptionInput = elements.get("#description-markdown");
+  descriptionInput.value = "Before\n\nAfter";
+  descriptionInput.selectionStart = descriptionInput.selectionEnd = "Before\n\n".length;
+  descriptionInput.dispatch("input");
+  const inlineDrop = { types: ["Files"], files: [{ name: "inline.png", type: "image/png" }], dropEffect: "none" };
+  await body.dispatch("drop", { dataTransfer: inlineDrop, target: descriptionInput, preventDefault() {} });
+  await settle();
+  assert.equal(descriptionInput.value, "Before\n\n![inline.png](/portfolio/inline.png)After");
+  const inlinePreview = preview.children[3].querySelectorAll("img")[0].replacement;
+  assert.equal(inlinePreview.children[0].src, "/portfolio/inline.png");
+  assert.equal(inlinePreview.style.width, "100%");
+
   const dropped = {
     types: ["Files"],
     files: [
@@ -779,6 +855,7 @@ test("portfolio controls retain browser behavior", async (t) => {
   assert.equal(mediaArea.classList.contains("drag-active"), false);
   assert.deepEqual(mediaPaths(), [
     "/portfolio/demo.mp4",
+    "/portfolio/inline.png",
     "/portfolio/drop-one.png",
     "/portfolio/drop-two.mp4",
   ]);
@@ -842,9 +919,11 @@ test("portfolio controls retain browser behavior", async (t) => {
   elements.get("#save-draft").dispatch("click");
   await settle();
   const mediaDraft = JSON.parse(draftPosts().at(-1).options.body);
+  assert.equal(mediaDraft.descriptionMarkdown, "Before\n\n![inline.png](/portfolio/inline.png)After");
   assert.deepEqual(mediaDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
   assert.deepEqual(mediaDraft.media.map(({ kind, src, size, posterSrc }) => ({ kind, src, size, ...(posterSrc ? { posterSrc } : {}) })), [
     { kind: "video", src: "/portfolio/demo.mp4", size: "medium", posterSrc: "/portfolio/demo-poster.jpg" },
+    { kind: "image", src: "/portfolio/inline.png", size: "full" },
     { kind: "image", src: "/portfolio/drop-one.png", size: "full" },
     { kind: "video", src: "/portfolio/drop-two.mp4", size: "full", posterSrc: "/portfolio/drop-two-poster.jpg" },
     { kind: "image", src: "/portfolio/kept.png", size: "full" },
@@ -855,6 +934,10 @@ test("portfolio controls retain browser behavior", async (t) => {
     { kind: "video", src: "/portfolio/warning-second.mp4", size: "full" },
     { kind: "video", src: "/portfolio/later.mp4", size: "full", posterSrc: "/portfolio/later-poster.jpg" },
   ]);
+
+  const inlineRow = mediaRows.children.find((row) => row.children[1].textContent === "/portfolio/inline.png");
+  inlineRow.children.at(-1).children.find(({ textContent }) => textContent === "Remove").dispatch("click");
+  assert.equal(descriptionInput.value, "Before\n\nAfter");
 
   removeCover.dispatch("click");
   assert.equal(coverAlt.disabled, true);
