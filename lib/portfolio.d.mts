@@ -17,6 +17,7 @@ export const PORTFOLIO_IMAGE_EXTENSIONS: Set<string>;
 export const PORTFOLIO_VIDEO_EXTENSIONS: Set<string>;
 export function createSlug(title: unknown, date?: Date): string;
 export function normalizePortfolioSrc(value: unknown, field: string): string;
+export function portfolioMediaSources(markdown: string): string[];
 export function normalizePortfolioProject(rawProject: unknown): PortfolioProject;
 export function normalizePortfolioContent(rawContent: unknown): PortfolioContent;
 export function mergePortfolioProject(content: PortfolioContent, project: PortfolioProject): PortfolioContent;

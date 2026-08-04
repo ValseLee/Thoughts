@@ -1029,6 +1029,8 @@ function renderPortfolioDashboard(root) {
     #preview .markdown { line-height:1.7; overflow-wrap:anywhere; }
     #preview figure { margin:20px 0 0; }
     #preview figcaption { color:var(--subtext); margin-top:7px; }
+    #preview .inline-media { display:block; margin-block:20px; }
+    #preview .inline-media-caption { display:block; color:var(--subtext); margin-top:7px; }
     #status { min-height:1.5em; margin-top:15px; white-space:pre-wrap; color:var(--subtext); }
     #status.ok { color:var(--ok); } #status.error { color:var(--danger); }
     #command-log { white-space:pre-wrap; overflow:auto; color:var(--subtext); }
@@ -1191,10 +1193,28 @@ function renderPortfolioDashboard(root) {
     }
 
     function removeMedia(index) {
-      state.project.media.splice(index, 1);
+      const [removed] = state.project.media.splice(index, 1);
+      descriptionInput.value = descriptionInput.value.replace(
+        /!\\[[^\\]\\n]*\\]\\((\\/portfolio\\/[^\\s)]+)\\)/g,
+        (marker, src) => src === removed.src ? "" : marker,
+      );
+      state.project.descriptionMarkdown = descriptionInput.value;
       state.dirty = true;
       renderMediaRows();
       schedulePreview();
+    }
+
+    function insertMediaAtSelection(item) {
+      const label = decodeURIComponent(item.src.split("/").at(-1)).replaceAll("[", "").replaceAll("]", "");
+      descriptionInput.setRangeText(
+        "![" + label + "](" + item.src + ")",
+        descriptionInput.selectionStart,
+        descriptionInput.selectionEnd,
+        "end",
+      );
+      state.project.descriptionMarkdown = descriptionInput.value;
+      descriptionInput.focus();
+      markDirty();
     }
 
     function mediaElement(item) {
@@ -1212,6 +1232,18 @@ function renderPortfolioDashboard(root) {
     function applyMediaSize(element, size) {
       element.style.width = mediaWidths[size];
       element.style.marginInline = "auto";
+    }
+
+    function previewMedia(item, inline = false) {
+      const container = document.createElement(inline ? "span" : "figure");
+      if (inline) container.className = "inline-media";
+      applyMediaSize(container, item.size);
+      container.append(mediaElement(item));
+      const caption = document.createElement(inline ? "span" : "figcaption");
+      if (inline) caption.className = "inline-media-caption";
+      caption.textContent = item.caption;
+      container.append(caption);
+      return container;
     }
 
     function loadVideoFrame(src) {
@@ -1346,6 +1378,7 @@ function renderPortfolioDashboard(root) {
           actions.append(generateButton);
         }
         actions.append(
+          mediaButton("Insert at cursor", () => insertMediaAtSelection(item), false),
           mediaButton("Move Up", () => moveMedia(index, -1), index === 0),
           mediaButton("Move Down", () => moveMedia(index, 1), index === state.project.media.length - 1),
           mediaButton("Remove", () => removeMedia(index), false),
@@ -1365,24 +1398,32 @@ function renderPortfolioDashboard(root) {
       const markdown = document.createElement("div");
       markdown.className = "markdown";
       const cover = state.project.coverImage ? mediaElement({ kind:"image", ...state.project.coverImage }) : null;
-      preview.replaceChildren(...(cover ? [cover] : []), title, period, markdown);
-      for (const item of state.project.media) {
-        const figure = document.createElement("figure");
-        applyMediaSize(figure, item.size);
-        figure.append(mediaElement(item));
-        const caption = document.createElement("figcaption");
-        caption.textContent = item.caption;
-        figure.append(caption);
-        preview.append(figure);
-      }
+      preview.replaceChildren(...(cover ? [cover] : []), title, period);
       try {
         const result = await requestJson("/api/portfolio/preview", {
           method:"POST", headers:{ "content-type":"application/json" },
           body:JSON.stringify({ markdown:state.project.descriptionMarkdown }),
         });
-        if (request === state.previewRequest) markdown.innerHTML = result.html;
+        if (request !== state.previewRequest) return;
+        markdown.innerHTML = result.html;
+        const referenced = new Set();
+        for (const image of markdown.querySelectorAll("img")) {
+          const item = state.project.media.find((media) => media.src === image.getAttribute("src"));
+          if (!item) continue;
+          referenced.add(item.src);
+          image.replaceWith(previewMedia(item, true));
+        }
+        const content = [markdown];
+        for (const item of state.project.media) {
+          if (referenced.has(item.src)) continue;
+          content.push(previewMedia(item));
+        }
+        preview.replaceChildren(...(cover ? [cover] : []), title, period, ...content);
       } catch (error) {
-        if (request === state.previewRequest) markdown.textContent = error.message;
+        if (request === state.previewRequest) {
+          markdown.textContent = error.message;
+          preview.replaceChildren(...(cover ? [cover] : []), title, period, markdown);
+        }
       }
     }
 
@@ -1491,7 +1532,7 @@ function renderPortfolioDashboard(root) {
       if (mayReplaceForm()) setProject(emptyProject());
     });
 
-    async function uploadMediaFiles(files) {
+    async function uploadMediaFiles(files, selection) {
       let firstPosterWarning = "";
       for (const file of files) {
         const stored = await uploadPortfolioFile(file);
@@ -1500,6 +1541,12 @@ function renderPortfolioDashboard(root) {
           : { kind:"video", src:stored.src, caption:"", size:"full" };
         state.project.media.push(item);
         state.dirty = true;
+        if (selection) {
+          descriptionInput.selectionStart = selection.start;
+          descriptionInput.selectionEnd = selection.end;
+          insertMediaAtSelection(item);
+          selection.start = selection.end = descriptionInput.selectionStart;
+        }
         renderMediaRows();
         schedulePreview();
         if (item.kind === "video") {
@@ -1550,10 +1597,13 @@ function renderPortfolioDashboard(root) {
     document.body.addEventListener("drop", (event) => {
       const isFileDrop = hasDraggedFiles(event);
       const files = isFileDrop ? Array.from(event.dataTransfer.files) : [];
+      const selection = event.target === descriptionInput
+        ? { start:descriptionInput.selectionStart, end:descriptionInput.selectionEnd }
+        : null;
       resetMediaDrag();
       if (!isFileDrop) return;
       event.preventDefault();
-      return withAction(mediaInput, () => uploadMediaFiles(files));
+      return withAction(mediaInput, () => uploadMediaFiles(files, selection));
     });
 
     loadDraftButton.addEventListener("click", () => withAction(loadDraftButton, async () => {
