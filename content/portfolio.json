@@ -35,6 +35,63 @@
           "posterSrc": "/portfolio/화면기록2-poster.jpg"
         }
       ]
+    },
+    {
+      "slug": "readme",
+      "name": "(Be better) Read",
+      "period": "2025.09.07 — Present",
+      "descriptionMarkdown": "# 책을 펴는 순간을 코드로 다루는 법: (Be better) Read 개발기\n\n## 왜 (Be better) Read를 만들었는가\n\n읽고 싶은 책은 계속 쌓이는데, 막상 시간이 생기면 책보다 스마트폰을 먼저 열게 된다. 의지가 없어서라기보다 책을 펼치기 전까지 거쳐야 할 단계가 많기 때문이다. 기존 독서 기록 앱들은 대체로 독서가 끝난 뒤 사용자를 만난다. 읽은 페이지와 감상을 저장하고, 달력과 통계로 결과를 보여준다. 하지만 기록할 독서가 아직 시작되지도 않았다면 이 기능들은 아무 역할도 하지 못한다.\n\n> 읽고 싶다는 마음이 생긴 순간부터 실제로 책을 펴기까지의 거리를 줄일 수 없을까?\n\n\"(Be better) Read\"는 이 질문에서 출발한 iPhone·iPad용 독서 습관 형성 앱이다. 책을 서재에 담는 일, 독서를 시작하고 집중하는 일, 읽은 내용을 기록하고 다음 독서로 돌아오는 일을 하나의 흐름으로 연결한다.\n\n알람이나 위젯을 누르면 해당 책의 독서 세션으로 이동한다. 독서 중에는 타이머와 필요한 도구만 남기고, 완료 뒤에는 페이지·시간·노트가 스트릭과 통계로 이어진다. 제품의 핵심은 더 많은 기록 항목이 아니다. 사용자가 다시 책으로 돌아오게 만드는 짧고 반복 가능한 경로다.\n\n## 제품 전제를 코드로 옮기기\n\n이 흐름의 공통 단위는 ReadLog다. ReadLog는 시작·종료 시각, 시작·종료 페이지, 만족도와 상태를 가진 한 번의 독서 세션이다. 한편, 독서 세션은 책으로 구성되지만 이 둘이 포함관계를 갖지는 않는다. 내 서비스의 모델 구조는 아래와 같다.\n\n- Book은 제목, 저자, 표지와 현재 페이지 같은 책 자체의 정보를 가진다.\n- BookRecord는 한 권을 읽기 시작해 완독하기까지의 여정을 나타낸다.\n- ReadLog는 그 여정 안에서 발생한 한 번의 독서를 기록한다.\n- FocusSession은 앱 전환 횟수와 Screen Time 차단 상태를 별도로 기록한다.\n- Note와 CustomShareCard는 특정 ReadLog에 연결된다.\n\n즉, 같은 책을 다시 읽으면 Book을 복제하지 않고 새로운 BookRecord를 만든다. Screen Time을 사용하지 않아도 ReadLog는 완료할 수 있으므로 FocusSession도 별도 생명주기로 두었다.\n\n사용자가 독서 세션에 진입하면 inProgress 상태의 ReadLog를 먼저 만든다. 세션을 중단하면 이 로그를 제거하고, 정상적으로 마치면 completed로 바꾼 뒤 책의 진행률과 스트릭을 갱신한다. 전체적인 Project의 코드 구성도 이 모델을 따라 구성했다. 앱 내부 source는 다음 책임으로 나뉜다.\n\n- Domain: Sendable Entity, Value Type, Repository Protocol\n- Data: SwiftData Model, Mapper, ModelActor Repository, 외부 SDK Adapter\n- UseCases: 세션 시작·완료, 스트릭, 알람과 집중 상태의 작업 단위\n- Features: SwiftUI View와 Observable ViewModel\n- Database: ModelContainer, Schema와 Migration\n- Dependencies: FactoryKit 등록과 실제 구현 조립\n- Shared: LinkNavigator Route, App Group, 공통 UI와 Platform Helper\n- Application: 앱 생명주기와 외부 URL 진입점(Deeplink 처리)\n\n화면은 SwiftData Model을 직접 받지 않는다. Repository Impl이 Mapper를 통해 영속 모델을 Domain Entity로 바꿔 리턴한다.\n\n~~~\nReadView.ViewModel\n    → StartReadingSessionUseCase\n    → Repository Protocol\n    → ModelActor Repository Impl\n    → SwiftData ModelContainer\n~~~\n\n한편, 내 서비스가 처음부터 이 구조를 갖고 있던 것은 아니다. 서비스가 만들어지던 초기에는 GRDB 기반 DB와 Repository/Service 골격이 남아있다. 그러나 GRDB의 복합 쿼리가 필요한 상황이 비즈니스 레벨에서 일어나지 않을 것을 알게 되었고, iCloud와의 연동이 필요해진 시점에서 SwiftData 구조로 리팩토링을 진행했다.\n\n이러한 이유에 따라, 서비스 개발을 시작하고 2달 뒤 SwiftData Model과 Mapper, 순수 Domain Entity, Repository Protocol, UseCase를 순서대로 분리했다.\n \n또한 Entity initializer를 nonisolated로, Repository Protocol을 Sendable로 바꾸는 등의 작업을 거치며 Swift 6가 요구하는 actor 격리 레벨에 맞추기 위해 코드를 조정했다. 각 기능의 직접적인 Repository 접근 또한 걷어내면서, UseCase가 전면에서 더 많이 호출되고 테스트될 수 있도록 코드를 정리하고 있다.\n\n이 migration은 아직도 진행중이다. Entry, Timeline과 일부 Debug 화면에는 직접적인 Repository 주입이 여전히 남아 있는 상태이며, 현재의 architecture rule에 따라 이러한 layer jump 규칙을 어기는 코드들이 다음 refactoring의 대상이 될 예정이다.\n\n추가로, Readme.xcodeproj에는 앱과 테스트를 포함해 여섯 개의 Native Target이 있다.\n\n~~~\nReadme.app\n├── ReadmeWidgetsExtension\n├── ReadmeActivityMonitor\n├── ReadmeActivityReport\n└── ReadmeShieldConfiguration\nReadmeTests\n~~~\n\nDomain, Data와 Features는 별도 Framework가 아니라 source directory다. 반면 Widget과 Screen Time Extension은 앱과 다른 프로세스에서 실행되므로 Xcode Target으로 분리했다.\n\n같은 프로세스 안에서는 protocol과 source boundary를 사용하고, OS가 실행 주체를 나누는 곳에만 Target을 추가했다. 현재 규모에서 모든 계층을 Framework로 만드는 비용을 피하기 위한 선택이었다.\n\n## OS에게 맡긴 것, 맡기지 않은 것\n\n(Be better) Read는 독서 세션을 앱 밖에서도 이어가기 위해 ActivityKit과 ScreenTime API를 사용한다. 습관 유지를 위한 nudge 기능을 제공하고, 독서 중 집중도를 유지하기 위한 선택이었다.\n\n### Live Activity: 표시만 Extension에 맡기기\n\n독서 타이머는 앱을 보고 있을 때보다 책을 보고 있을 때 더 유용하다. 그래서 진행 중인 책과 경과 시간을 잠금 화면과 Dynamic Island에서도 확인할 수 있도록 했다.\n\nReadmeWidgetsExtension은 Lock Screen과 Dynamic Island UI를 렌더링한다. 앱의 ReadingSessionActivityService는 Activity의 시작과 종료를 소유한다.\n\n~~~\nReadView\n    → ReadingSessionActivityService\n    → Activity.request / Activity.end\n\nReadmeWidgetsExtension\n    → ReadingSessionLiveActivity\n    → Lock Screen / Dynamic Island\n~~~\n\nReadingSessionAttributes에는 책 제목과 시작 시각에 대한 정보만 알고 있다.\n\n~~~swift\ncurrentActivity = try Activity.request(\n    attributes: ReadingSessionAttributes(\n        bookTitle: book.title,\n        startTime: readLog.startTime\n    ),\n    content: .init(state: .init(), staleDate: nil),\n    pushType: nil\n)\n~~~\n\nReadingSessionAttributes는 앱 source에 있지만 Widget Extension의 Target Membership에도 포함된다. 두 Target이 같은 ActivityAttributes 타입을 compile해야 같은 payload를 해석할 수 있다.\n\n이 Service는 나중에 @MainActor로 격리하는 방향으로 수정했다. mutable Activity를 @unchecked Sendable로 감싸는 대신 UI 생명주기와 같은 Actor에서 소유하도록 조치하기 위해서였다.\n\n당연하지만, Live Activity는 Presentor의 역할만을 수행하며 ReadLog는 수정하지 않는다. 화면 표시가 실패해도 독서 세션은 계속되어야 하기 때문이다.\n\n### Screen Time: 실행은 OS에, 정책은 앱에 두기\n\n집중 모드는 단일 API 호출로 끝나지 않았다. FamilyControls, DeviceActivity와 ManagedSettings를 서로 다른 책임으로 조합했다.\n\nFamilyControls는 사용자가 차단할 앱과 카테고리를 고르는 Picker를 제공한다. 선택 결과는 실제 Bundle ID가 아니라 Privacy-Preserving Token이다.\n\nReadView는 Pro 권한과 Screen Time 승인을 확인한 뒤 FamilyActivitySelection을 StartFocusSessionUseCase에 전달한다.\n\n~~~\nReadView\n    → StartFocusSessionUseCase\n    → ActivateScreenTimeBlockingUseCase\n    → ScreenTimeBlockingSettings 저장\n    → DeviceActivityCenter.startMonitoring\n~~~\n\nUseCase는 FocusSession ID를 먼저 만든다. 차단 설정이 어느 독서 세션에 속하는지 저장한 뒤 DeviceActivity Schedule을 시작하기 위해서다.\n\n활성화가 실패하면 먼저 저장한 ScreenTimeBlockingSettings를 삭제한다. DB에는 활성 상태가 남았지만 실제 Shield는 없는 불일치를 막는 보상 처리다. 앱과 DeviceActivityMonitor Extension은 메모리를 공유하지 않는다. 선택한 Token은 App Group에 저장한다.\n\nActivityMonitor는 intervalDidStart에서 Token을 읽어 Named ManagedSettingsStore에 Shield를 적용한다. intervalDidEnd에서는 같은 Store를 비운다. ShieldConfiguration Extension은 차단 화면의 제목과 설명을 그린다. 어떤 앱을 언제 차단할지 결정하는 Policy는 알지 못한다.\n\nReadmeActivityReport Target도 존재하지만 현재 앱의 차단 경로에는 연결되어 있지 않다. 총 사용 시간을 문자열로 만드는 Scaffold이며, 실제 차단은 ActivityMonitor와 ShieldConfiguration이 담당한다. OS에는 실행을 맡겼지만 세션의 의미는 맡기지 않았다. ReadLog와 FocusSession이 앱의 기준 상태이고, Extension은 App Group을 통해 필요한 최소 정보만 읽는다.\n\n## 읽는 상태를 보여주는 UI\n\n(Be better) Read의 UI는 독서 기록을 입력하는 화면보다 읽는 상태를 유지하는 화면에 더 무게를 둔다.\n\n서재의 책은 표지와 제목만 나열하지 않는다. 현재 페이지, 읽기 상태와 사용자가 고른 Gradient를 함께 보여준다. 해외 사용자에게는 Google Books API를 적용하며, 한국인 사용자는 Aladin 검색으로 책을 추가하고, 검색되지 않는 책은 직접 입력할 수 있다.\n\n독서 화면에는 책 정보와 경과 시간을 배치했다. Blackout Mode를 켜면 책 정보와 조작 버튼을 감추고 타이머만 남긴다. iPad에서는 독서 화면 옆에 Apple Pencil용 Note Panel을 열 수 있다. 메모는 책에 직접 붙지 않고 현재 ReadLog에 연결되어, 어느 독서에서 남긴 생각인지 보존한다.\n\n완료된 ReadLog는 날짜별 Timeline, 주간 통계, Heatmap과 Streak로 다시 보인다. Quick Widget은 지금 읽는 책으로, Heatmap Widget은 누적된 독서 흔적으로 돌아가는 진입점이다.\n\n완료 화면에서는 책, 읽은 시간과 Streak를 이미지로 공유할 수 있다. Custom Share Card에서는 배경, Text 위치, Font, 색상과 정렬 Guide를 직접 편집할 수 있다.\n\n기록을 많이 보여주는 것이 목적은 아니다. 지금 읽는 상태와 이미 읽어 온 흔적을 구분해, 다음 행동을 선택할 수 있게 하는 것이 UI의 역할이다.\n\n## 앱과 OS 상태를 함께 보존하기\n\n이 서비스에서 가장 어려운 문제는 화면보다 세션 정리의 일관성이었다. 한 번의 독서에는 여러 상태가 함께 움직인다.\n\n- SwiftData의 inProgress ReadLog\n- FocusSession과 ScreenTimeBlockingSettings\n- 앱 Defaults의 현재 Book·ReadLog ID\n- App Group의 차단 Token과 Streak Snapshot\n- 실행 중인 Live Activity\n- DeviceActivity Schedule과 ManagedSettings Shield\n- Widget과 화면에 표시되는 Streak\n\n앱과 Extension, OS Scheduler는 서로 다른 프로세스와 생명주기를 가지기 떄문에, 이 상태들은 하나의 Transaction으로 묶을 수 없었다. 그래서 종료 경로에서는 외부 상태를 먼저 정리하고, 로컬 세션을 마지막에 비우도록 했다.\n\n~~~\nLive Activity stop\n    → Screen Time deactivate\n    → inProgress ReadLog delete\n    → current session Defaults clear\n~~~\n\n정상 완료에서는 CompleteFocusSessionUseCase가 설정 ID로 차단을 해제한다. 취소나 화면 dismiss에서도 같은 Cleanup을 호출한다. Deactivate UseCase는 설정이 이미 없거나 Shield가 풀린 경우에도 성공하도록 멱등하게 만들었다. 중복 Cleanup보다 남은 차단 상태가 더 위험하기 때문이다. 독서 세션의 안정적인 마무리와 관리가 더 중요하다고 판단했다.\n\nCloudKit을 켜면 동일한 Schema로 기기 간 동기화를 사용한다. 기존 로컬 사용자는 DB 파일을 감지해 자동 전환하지 않고, 명시적인 Upload 흐름을 거친다. ReadLog에는 세션을 시작한 Device ID도 남긴다.\n\n내가 꽤 공들인 부분 중 하나는, 동일한 애플 계정을 갖고 있는 사용자가 서로 다른 기기에서 독서 세션을 시작하게 된다면, 나중에 시작된 새 세션을 막아 타이머와 페이지가 두 갈래로 나뉘지 않게 한 것이다. DB 내에 동시에 똑같은 세션이 쌓이는 것을 방지하여 데이터의 정합성을 유지하고자 했다.\n\n앱의 세션, OS가 실행하는 기능과 여러 기기의 데이터가 완전히 같은 Transaction이 될 수는 없다. 대신 실패했을 때 되돌리거나 다시 계산할 수 있는 경계를 명시했다.\n\n## 주도권을 사용자에게\n\nScreen Time 차단은 Pro 기능이지만 독서 기록의 핵심 흐름은 구독이나 Screen Time 권한 없이도 동작한다. 사용자가 권한을 거부해도 책을 추가하고, 읽고, 페이지와 노트를 기록할 수 있다. Live Activity가 시작되지 않아도 ReadLog는 유지된다.\n\n별도 회원가입과 자체 사용자 데이터 서버도 두지 않았다. 독서 기록은 로컬 SwiftData에 남고, 사용자가 원할 때 CloudKit으로 사용자의 기기 내에서만 유지된다. (Be better) Read를 개발하며 가장 많이 고민한 질문은 기능을 얼마나 많이 붙일 수 있는지가 아니었다.\n\n> 이 기술은 사용자가 앱에 더 오래 머물게 하는가, 아니면 더 빨리 책으로 돌려보내는가?\n\n알람과 위젯은 시작까지의 거리를 줄인다. Live Activity는 앱을 다시 열지 않고도 시간을 보여주고, Screen Time은 사용자가 선택한 방해 요소만 잠시 막는다.\n\n앞으로 추천과 통계를 확장하더라도 이 원칙은 유지하려 한다. 더 많은 입력을 요구하는 앱이 아니라, 사용자가 자신의 독서 상태를 통제하며 다시 책을 펼치는 데 필요한 가장 짧은 경로가 목표다.",
+      "media": [
+        {
+          "kind": "image",
+          "src": "/portfolio/simulator-screenshot-iphone-17-pro-2026-08-04-at-15-04-18.png",
+          "caption": "읽고 싶은, 읽고 있는 책 검색하기",
+          "alt": "search-book",
+          "size": "mini"
+        },
+        {
+          "kind": "image",
+          "src": "/portfolio/simulator-screenshot-iphone-17-pro-2026-08-04-at-15-05-02.png",
+          "caption": "독서 세션 중",
+          "alt": "reading-session",
+          "size": "mini"
+        },
+        {
+          "kind": "video",
+          "src": "/portfolio/reading-session.mp4",
+          "caption": "reading-session-vid",
+          "size": "mini",
+          "posterSrc": "/portfolio/reading-session-poster-3.jpg"
+        },
+        {
+          "kind": "video",
+          "src": "/portfolio/done-reading.mp4",
+          "caption": "독서 세션이 끝난 후",
+          "size": "mini",
+          "posterSrc": "/portfolio/done-reading-poster-2.jpg"
+        },
+        {
+          "kind": "image",
+          "src": "/portfolio/simulator-screenshot-iphone-17-pro-2026-08-04-at-15-06-24.png",
+          "caption": "주간 기록 화면",
+          "alt": "weekly",
+          "size": "mini"
+        },
+        {
+          "kind": "image",
+          "src": "/portfolio/simulator-screenshot-iphone-17-pro-2026-08-04-at-15-06-28.png",
+          "caption": "일간 기록 화면",
+          "alt": "daily",
+          "size": "mini"
+        },
+        {
+          "kind": "image",
+          "src": "/portfolio/simulator-screenshot-iphone-17-pro-2026-08-04-at-15-06-30.png",
+          "caption": "주간 캘린더",
+          "alt": "calendar",
+          "size": "mini"
+        }
+      ]
     }
   ]
 }
