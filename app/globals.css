@@ -212,6 +212,7 @@ h4 {
 .two-column-copy li {
   padding: 14px 0;
   border-top: 1px solid var(--border);
+  color: var(--subtext);
 }
 
 .expertise-grid {
@@ -432,7 +433,8 @@ textarea:focus-visible {
   .hero-grid {
     display: flex;
     flex-direction: column;
-    min-height: calc(100vh - 160px);
+    justify-content: center;
+    min-height: 100vh;
   }
 
   .hero-intro {
@@ -450,9 +452,10 @@ textarea:focus-visible {
 
   .display-title {
     font-size: clamp(3.5rem, 17vw, 7rem);
-    line-height: 0.86;
+    line-height: 1.3;
   }
 
+  .two-column-copy,
   .expertise-grid,
   .article-grid,
   .contact-grid {
