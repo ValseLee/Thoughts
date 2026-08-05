@@ -477,6 +477,9 @@ textarea:focus-visible {
     grid-column: auto;
   }
 
+  .article-shell {
+    max-width: 82.5vw;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
