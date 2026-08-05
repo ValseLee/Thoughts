@@ -100,6 +100,20 @@
   }
 }
 
+@media (max-width:760px) and (hover:hover) and (pointer:fine) and (prefers-reduced-motion:no-preference) {
+  .overlay {
+    transform: none;
+  }
+
+  .card:hover .overlay {
+    transform: translate(12px, -12px);
+  }
+
+  .card:focus-visible .overlay {
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion:reduce) {
   .overlay {
     transform: none;
